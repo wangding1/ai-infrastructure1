@@ -15,6 +15,12 @@ def create_score_evaluator(prompt_name):
     async def content_similarity(
         *, input: str, output: str, expected_output: str, **kwargs
     ):
+    
+        langfuse = get_client()
+        prompt = langfuse.get_prompt(prompt_name)
+        model_config = prompt.config.get("model_config", {})
+        eval_name = prompt.config.get("name", "no-name")
+        
         if not output:
             return Evaluation(
                 name=eval_name,
