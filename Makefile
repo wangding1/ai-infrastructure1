@@ -1,6 +1,9 @@
 DS ?= all
 
-.PHONY: build dev debug course course-push test-benchmark
+.PHONY: docker-recreate build dev debug course course-push test-benchmark
+
+docker-recreate:
+	docker compose up -d --force-recreate
 
 build:
 	uv run langgraph build -t langgraph-python-agent:$(TAG)
