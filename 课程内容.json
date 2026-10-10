@@ -1,0 +1,136 @@
+{
+  "title": "Agent观测与评估",
+  "author": "袁进",
+  "description": "",
+  "playerPath": "AI大全栈 / AI / Agent观测与评估",
+  "resourceUrl": "https://gitee.com/dev-edu/ai-eval",
+  "skills": [
+    "安装langfuse",
+    "组织与工程",
+    "langfuse控制面",
+    "langfuse api",
+    "langfuse sdk",
+    "Trace",
+    "Observation",
+    "聚合",
+    "Observation Status",
+    "Observation Type",
+    "成本统计",
+    "耗时统计",
+    "提示词版本控制",
+    "提示词变量注入",
+    "模型的动态切换",
+    "提示词运行观测",
+    "演练场",
+    "评估流水线",
+    "人工标注",
+    "评估维度",
+    "评估器",
+    "LLM as Judge",
+    "Code Evaluation",
+    "评估器成本优化",
+    "数据集",
+    "线上评估",
+    "离线评估",
+    "实验对照组",
+    "Task",
+    "Agent回归测试",
+    "langfuse ui 离线评估",
+    "SDK 离线评估",
+    "评分加权汇总",
+    "离线评估接入Pytest",
+    "实验 webhook",
+    "告警指标",
+    "Automation",
+    "自动清理过期数据",
+    "dashboard"
+  ],
+  "type": "录播",
+  "status": "已上架",
+  "catalog": [
+    {
+      "title": "必看导言",
+      "showIndex": true
+    },
+    {
+      "title": "安装langfuse",
+      "showIndex": true
+    },
+    {
+      "title": "数据上报",
+      "showIndex": true
+    },
+    {
+      "title": "Observation",
+      "showIndex": true
+    },
+    {
+      "title": "提示词管理",
+      "showIndex": true
+    },
+    {
+      "title": "演练场",
+      "showIndex": true
+    },
+    {
+      "title": "人工评估",
+      "showIndex": true
+    },
+    {
+      "title": "自动化评估器",
+      "showIndex": true
+    },
+    {
+      "title": "评估器优化",
+      "showIndex": true
+    },
+    {
+      "title": "数据集",
+      "showIndex": true
+    },
+    {
+      "title": "补充知识",
+      "showIndex": true
+    },
+    {
+      "title": "实验",
+      "showIndex": true
+    },
+    {
+      "title": "Agent回归测试",
+      "showIndex": true
+    },
+    {
+      "title": "使用UI完成离线评估",
+      "showIndex": true
+    },
+    {
+      "title": "使用SDK完成离线评估",
+      "showIndex": true
+    },
+    {
+      "title": "离线评估接入Pytest",
+      "showIndex": true
+    },
+    {
+      "title": "线上实验入口",
+      "showIndex": true
+    },
+    {
+      "title": "告警",
+      "showIndex": true
+    },
+    {
+      "title": "清理旧数据",
+      "showIndex": true
+    },
+    {
+      "title": "dashboard",
+      "showIndex": true
+    },
+    {
+      "title": "课程总结",
+      "showIndex": true
+    }
+  ]
+}
