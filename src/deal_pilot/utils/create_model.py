@@ -1,14 +1,15 @@
 from langchain.chat_models import init_chat_model
-from deal_pilot.config.anthropic_settings import anthropic_settings
-from deal_pilot.utils.anthropic_compat import patch_nullable_cache_creation_usage
+from deal_pilot.config.openai_settings import openai_settings
 
 
 def create_model(**kwargs):
-    patch_nullable_cache_creation_usage()
+    kwargs.pop("model_provider", None)  # 删除 model_provider 字段
+    thinking = kwargs.get("thinking", True)
+    kwargs.pop("thinking", None)
     config = {
-        "model": anthropic_settings.default_model,
-        "thinking": {"type": "disabled"},
-        "model_provider": "anthropic",
+        "model": openai_settings.default_model,
+        "model_provider": "openai_reasoning",
+        "extra_body": {"thinking": {"type": "enabled" if thinking else "disabled"}},
     }
     config.update(kwargs)
 
