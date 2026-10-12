@@ -5,7 +5,7 @@
     "root": "."
   },
   "graphs": {
-    "main_agent": "deal_pilot.agents.main:agent_factory_with_trace",
+    "main_agent": "deal_pilot.agents.main:factory_with_trace",
     "delete_old_trace": "deal_pilot.crons.delete_old_trace:graph"
   },
   "env": ".env",
