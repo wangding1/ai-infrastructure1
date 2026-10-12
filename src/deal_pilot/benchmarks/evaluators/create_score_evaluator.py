@@ -7,10 +7,6 @@ from langchain.messages import HumanMessage
 
 
 def create_score_evaluator(prompt_name):
-    langfuse = get_client()
-    prompt = langfuse.get_prompt(prompt_name)
-    model_config = prompt.config.get("model_config", {})
-    eval_name = prompt.config.get("name", "no-name")
 
     async def content_similarity(
         *, input: str, output: str, expected_output: str, **kwargs

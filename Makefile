@@ -12,8 +12,7 @@ dev:
 	uv run langgraph dev --host 0.0.0.0 --port 80
 
 debug:
-	uv run langgraph dev --host 0.0.0.0 --port 80 --debug-port 5678
-
+	uv run langgraph dev --host 0.0.0.0 --port 80 --debug-port 5678 --wait-for-client
 course:
 	uv run python scripts/course.py
 

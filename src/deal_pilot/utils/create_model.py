@@ -6,10 +6,11 @@ def create_model(**kwargs):
     kwargs.pop("model_provider", None)  # 删除 model_provider 字段
     thinking = kwargs.get("thinking", True)
     kwargs.pop("thinking", None)
+    kwargs.pop("extra_body", None)
     config = {
         "model": openai_settings.default_model,
         "model_provider": "openai_reasoning",
-        "extra_body": {"thinking": {"type": "enabled" if thinking else "disabled"}},
+        "extra_body": {"enable_thinking": thinking},
     }
     config.update(kwargs)
 
