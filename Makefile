@@ -1,6 +1,6 @@
 DS ?= all
 
-.PHONY: docker-recreate build dev debug course course-push test-benchmark
+.PHONY: docker-recreate build dev debug course course-push test-benchmark test-utils
 
 docker-recreate:
 	docker compose up -d --force-recreate
@@ -18,6 +18,9 @@ course:
 
 test-benchmark:
 	BENCHMARK_DATASET="$(DS)" uv run pytest -q -s --tb=no tests/benchmarks/test_benchmark.py
+
+test-utils:
+	uv run pytest -q tests/utils
 
 course-push:
 	@[ -n "$(SHA)" ] || (echo "请提供提交 hash: make course-push SHA=<hash>" && exit 1)
