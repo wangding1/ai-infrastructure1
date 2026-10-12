@@ -1,5 +1,6 @@
 from langchain.chat_models import init_chat_model
 from deal_pilot.config.openai_settings import openai_settings
+from deal_pilot.utils.shared import get_thread_id
 
 
 def create_model(**kwargs):
@@ -12,6 +13,10 @@ def create_model(**kwargs):
         "model_provider": "openai_reasoning",
         "extra_body": {"enable_thinking": thinking},
     }
+    thread_id = get_thread_id()
+    if thread_id:
+        config["default_headers"] = {"x-litellm-session-id": thread_id}
+
     config.update(kwargs)
 
     model = init_chat_model(**config)
