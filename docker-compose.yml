@@ -163,6 +163,8 @@ services:
       DATABASE_URL: postgresql://root:123456@litellm_postgres:5432/postgres
       STORE_MODEL_IN_DB: "True"
       STORE_PROMPTS_IN_SPEND_LOGS: "True"
+      LANGFUSE_TRACING_ENVIRONMENT: gateway
+      OTEL_ENVIRONMENT_NAME: gateway
       REDIS_HOST: litellm_redis
       REDIS_PORT: 6379
       REDIS_DB: 0
