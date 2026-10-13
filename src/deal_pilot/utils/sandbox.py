@@ -1,5 +1,6 @@
 import asyncio
 import uuid
+from contextlib import asynccontextmanager
 from datetime import timedelta
 from weakref import WeakValueDictionary
 
@@ -117,3 +118,9 @@ async def get_sandbox(key: str | None = None, store: BaseStore | None = None):
             store=store,
         )
         return sandbox
+
+@asynccontextmanager
+async def enter_sandbox(key: str | None = None, store: BaseStore | None = None):
+    sandbox = await get_sandbox(key=key, store=store)
+    yield sandbox
+    
