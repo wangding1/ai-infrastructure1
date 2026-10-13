@@ -122,5 +122,10 @@ async def get_sandbox(key: str | None = None, store: BaseStore | None = None):
 @asynccontextmanager
 async def enter_sandbox(key: str | None = None, store: BaseStore | None = None):
     sandbox = await get_sandbox(key=key, store=store)
-    yield sandbox
-    
+    sandbox_config = await get_config("sandbox_config", OpenSandboxConfig)
+    await sandbox.renew(timedelta(seconds=sandbox_config.timeout_seconds))
+    try:
+        yield sandbox
+    finally:
+        await sandbox.renew(timedelta(seconds=sandbox_config.timeout_seconds))
+        await sandbox.close()
