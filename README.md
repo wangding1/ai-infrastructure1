@@ -49,6 +49,8 @@ make debug
   
   密码：初始界面自行设定
   
+  API接口文档：https://nacos.io/swagger/client/
+  
 - **OpenSandbox Server**
 
   API 接口：http://127.0.0.1:8090/docs
