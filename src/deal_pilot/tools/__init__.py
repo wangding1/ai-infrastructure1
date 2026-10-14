@@ -1,5 +1,6 @@
 from langchain_core.tools import BaseTool
 from deal_pilot.tools.ask_user_question import ask_user_question
+from deal_pilot.tools.deploy import deploy
 from deal_pilot.tools.time import get_current_time
 from deal_pilot.tools.web import fetch_url, web_search
 
@@ -8,6 +9,7 @@ _AVAILABLE_TOOLS: dict[str, BaseTool] = {
     "web_search": web_search,
     "get_current_time": get_current_time,
     "ask_user_question": ask_user_question,
+    "deploy": deploy,
 }
 
 tools: list[BaseTool] = list(_AVAILABLE_TOOLS.values())
