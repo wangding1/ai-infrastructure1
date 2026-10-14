@@ -4,12 +4,18 @@ from collections.abc import Sequence
 from importlib import import_module
 from typing import Any
 
+from deepagents import create_deep_agent
+from deepagents.backends.protocol import BackendProtocol
+from deepagents.middleware import CompiledSubAgent
+from langchain.agents.middleware.types import AgentMiddleware
 from langchain.tools import BaseTool
 from langchain_core.runnables import Runnable
 from langchain_mcp_adapters.client import MultiServerMCPClient
 
+from deal_pilot.backends.sandbox_backend import SandboxBackend
 from deal_pilot.config.nacos.nacos_agent_spec import get_agent_spec
 from deal_pilot.config.nacos.nacos_schemas import AgentSpec
+from deal_pilot.config.nacos.nacos_skill import agent_skills_root
 from deal_pilot.tools import get_tools
 from deal_pilot.utils.create_model import create_model
 from deal_pilot.utils.func_tools import func_cache
@@ -102,11 +108,23 @@ class AgentFactory(ABC):
             system_prompt=agent_config.system_prompt,
             tools=tools,
             subagents=subagents,
-            skills=agent_config.skills,
         )
         return agent
 
-    @abstractmethod
+    def _skill_sources(self) -> list[str] | None:
+        if not self.agent_config or not self.agent_config.skills:
+            return None
+        return [f"{agent_skills_root(self.name)}/"]
+
+    def _create_deep_agent_backend(self) -> BackendProtocol:
+        return SandboxBackend()
+
+    def _create_deep_agent_middleware(self) -> Sequence[AgentMiddleware]:
+        return ()
+
+    def _create_deep_agent_state_schema(self) -> type | None:
+        return None
+
     async def create_agent(
         self,
         *,
@@ -114,5 +132,14 @@ class AgentFactory(ABC):
         system_prompt: str,
         tools: Sequence[BaseTool],
         subagents: list[dict],
-        skills: list[str],
-    ) -> Runnable: ...
+    ) -> Runnable:
+        return create_deep_agent(
+            model=model,
+            system_prompt=system_prompt,
+            tools=tools,
+            subagents=[CompiledSubAgent(**config) for config in subagents],
+            skills=self._skill_sources(),
+            state_schema=self._create_deep_agent_state_schema(),
+            middleware=list(self._create_deep_agent_middleware()),
+            backend=self._create_deep_agent_backend(),
+        )

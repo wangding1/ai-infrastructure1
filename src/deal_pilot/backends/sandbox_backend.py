@@ -21,6 +21,8 @@ type IdGetter = Callable[[], str]
 
 
 class SandboxBackend(BaseSandbox):
+    """Deep Agents 文件/命令后端，仅连接当前用户的沙箱（/shared 只读）。"""
+
     id_getter: IdGetter
 
     def __init__(self, id_getter: IdGetter | None = None) -> None:
