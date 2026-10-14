@@ -22,7 +22,7 @@ def minio_client() -> MinIO:
 
 @pytest.fixture
 def bucket(minio_client: MinIO) -> str:
-    name = f"deal-pilot-it-{uuid.uuid4().hex[:12]}"
+    name = f"minio-it-{uuid.uuid4().hex[:12]}"
 
     async def _setup() -> None:
         await minio_client.create_bucket(name)

@@ -1,12 +1,14 @@
 import base64
 import json
 import re
+import shlex
 from datetime import timedelta
 from pathlib import Path, PurePosixPath
-from typing import Any, TypedDict
-from urllib.parse import quote
+from typing import Any, Literal, TypedDict
 
 from langchain.tools import tool
+from langgraph.runtime import get_runtime
+from langgraph.store.base import BaseStore
 from opensandbox.models.execd import RunCommandOpts
 from pydantic import BaseModel, Field
 
@@ -16,6 +18,8 @@ from deal_pilot.config.nacos.nacos_schemas import OpenSandboxConfig
 from deal_pilot.utils.minio import CacheStrategy, ContentTypeStrategy, MinIO
 from deal_pilot.utils.sandbox import enter_sandbox
 from deal_pilot.utils.shared import get_user_id
+
+_BUCKET_NAME = "deal-pilot"
 
 _DEPLOY_CACHE_STRATEGIES = [
     CacheStrategy(
@@ -75,7 +79,7 @@ import asyncio
 import json
 import os
 import sys
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from minio import CacheStrategy, ContentTypeStrategy, MinIO
 
@@ -118,6 +122,43 @@ _CONTENT_TYPE = ContentTypeStrategy(
 )
 
 
+def _validate_entries(source: Path, entry_files: list[str]) -> None:
+    if source.is_dir():
+        has_file = False
+        for dirpath, _, filenames in os.walk(source, followlinks=False):
+            current = Path(dirpath)
+            for name in filenames:
+                local_path = current / name
+                if local_path.is_symlink() or not local_path.is_file():
+                    continue
+                has_file = True
+                break
+            if has_file:
+                break
+        if not has_file:
+            print("部署目录为空或无可上传的普通文件", file=sys.stderr)
+            sys.exit(1)
+        for entry in entry_files:
+            entry_path = source / entry
+            if not entry_path.is_file():
+                print(f"entry_files 中的入口不是待上传的普通文件: {entry}", file=sys.stderr)
+                sys.exit(1)
+        return
+    if source.is_file():
+        if len(entry_files) != 1:
+            print("单文件部署时 entry_files 必须只包含一个入口", file=sys.stderr)
+            sys.exit(1)
+        if PurePosixPath(entry_files[0]).name != source.name:
+            print(
+                f"单文件部署时入口文件名必须与源文件 basename 一致: {entry_files[0]!r}",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        return
+    print(f"路径不存在或不是普通文件/目录: {source}", file=sys.stderr)
+    sys.exit(1)
+
+
 async def main() -> None:
     cfg = json.loads(os.environ["DEPLOY_PAYLOAD"])
     client = MinIO(
@@ -131,6 +172,8 @@ async def main() -> None:
     source = Path(cfg["source_path"])
     prefix = cfg["object_prefix"]
     bucket = cfg["bucket"]
+    entry_files = cfg.get("entry_files") or []
+    _validate_entries(source, entry_files)
     if source.is_dir():
         result = await client.upload_dir(
             bucket_name=bucket,
@@ -204,6 +247,12 @@ class DeployInput(BaseModel):
         存储路径是： <用户ID>/<target_dirname>/。
         用户 ID 由系统自动注入，你只需要指定 target_dirname 即可。
         建议该值直接取用 workspace 中的工程名字。
+
+        注意：访问 URL 落在子路径下（非站点根 /）。Vite 等前端默认 base 为 /，
+        构建产物中资源引用常为绝对路径（如 /assets/index.js），部署到
+        <用户ID>/<target_dirname>/ 后浏览器仍从根路径拉资源，会导致 404。
+        部署 SPA 前请将 vite.config 的 base 设为与发布子路径一致（如 ./ 或
+        /<用户ID>/<target_dirname>/），勿仅上传 dist 而不检查 base。
         """)
     entry_files: list[str] = Field(
         min_length=1,
@@ -216,15 +265,10 @@ class DeployInput(BaseModel):
 
 
 class DeployOutput(TypedDict):
-    # 部署的总文件数量
     total_count: int
-    # 成功部署的文件数量
     success_count: int
-    # 失败的文件数量
     failure_count: int
-    # 失败的原因，键为沙箱内文件的绝对路径，值是错误描述
     failures: dict[str, str]
-    # 用户访问产物的入口地址集合
     urls: list[str]
 
 
@@ -239,6 +283,12 @@ def _resolve_endpoint_for_sandbox() -> str:
     if custom:
         return custom
     return "host.docker.internal:9002"
+
+
+def _host_minio_client() -> MinIO:
+    return _make_minio_client(
+        endpoint=minio_settings.endpoint.strip() or "localhost:9002"
+    )
 
 
 def _make_minio_client(*, endpoint: str) -> MinIO:
@@ -282,21 +332,10 @@ def _entry_object_key(user_id: str, target_dirname: str, entry_file: str) -> str
 def _build_entry_urls(
     user_id: str, target_dirname: str, entry_files: list[str]
 ) -> list[str]:
-    bucket = minio_settings.bucket.strip() or "deal-pilot"
-    custom_prefix = minio_settings.url_prefix.strip()
-    if custom_prefix:
-        base = custom_prefix.rstrip("/")
-        return [
-            f"{base}/{quote(user_id, safe='')}/{quote(target_dirname, safe='')}/"
-            f"{quote(entry, safe='/')}"
-            for entry in entry_files
-        ]
-    url_client = _make_minio_client(
-        endpoint=minio_settings.endpoint.strip() or "localhost:9002"
-    )
+    url_client = _host_minio_client()
     return [
         url_client.get_file_url(
-            bucket_name=bucket,
+            bucket_name=_BUCKET_NAME,
             filename=_entry_object_key(user_id, target_dirname, entry),
         )
         for entry in entry_files
@@ -309,6 +348,14 @@ def _map_dir_failures(source_dir: str, failures: dict[str, str]) -> dict[str, st
     for relative, message in failures.items():
         mapped[str((root / relative).resolve())] = message
     return mapped
+
+
+def _sandbox_store() -> BaseStore | None:
+    try:
+        runtime = get_runtime()
+        return runtime.store
+    except (RuntimeError, AttributeError):
+        return None
 
 
 def _stdout_text(execution: Any) -> str:
@@ -325,7 +372,29 @@ def _stderr_text(execution: Any) -> str:
     return "".join(parts).strip()
 
 
-async def _run_sandbox_upload(source_path: str, object_prefix: str) -> dict[str, Any]:
+async def _sandbox_source_kind(
+    source_path: str, store: BaseStore | None
+) -> Literal["file", "dir", "missing"]:
+    quoted = shlex.quote(source_path)
+    command = (
+        f"if [ -d {quoted} ]; then echo dir; "
+        f"elif [ -f {quoted} ]; then echo file; "
+        f"else echo missing; fi"
+    )
+    async with enter_sandbox(get_user_id(), store=store) as sandbox:
+        execution = await sandbox.commands.run(command)
+    text = _stdout_text(execution).strip()
+    if text in {"file", "dir", "missing"}:
+        return text
+    raise RuntimeError(f"无法判断沙箱路径类型: {source_path}")
+
+
+async def _run_sandbox_upload(
+    source_path: str,
+    object_prefix: str,
+    entry_files: list[str],
+    store: BaseStore | None,
+) -> dict[str, Any]:
     access_key, secret_key = _minio_credentials()
     payload = json.dumps(
         {
@@ -335,7 +404,8 @@ async def _run_sandbox_upload(source_path: str, object_prefix: str) -> dict[str,
             "access_key": access_key,
             "secret_key": secret_key,
             "secure": minio_settings.secure,
-            "bucket": minio_settings.bucket.strip() or "deal-pilot",
+            "bucket": _BUCKET_NAME,
+            "entry_files": entry_files,
         },
         ensure_ascii=False,
     )
@@ -346,7 +416,7 @@ async def _run_sandbox_upload(source_path: str, object_prefix: str) -> dict[str,
         + json.dumps(_SANDBOX_UPLOAD_BOOTSTRAP)
     )
     script_b64 = base64.b64encode(_SANDBOX_UPLOAD_SCRIPT.encode()).decode()
-    async with enter_sandbox(get_user_id()) as sandbox:
+    async with enter_sandbox(get_user_id(), store=store) as sandbox:
         execution = await sandbox.commands.run(
             command,
             opts=RunCommandOpts(
@@ -360,6 +430,8 @@ async def _run_sandbox_upload(source_path: str, object_prefix: str) -> dict[str,
         )
     if execution.exit_code != 0:
         detail = _stderr_text(execution) or _stdout_text(execution) or "未知错误"
+        if "entry_files" in detail or "部署目录为空" in detail or "单文件部署" in detail:
+            raise ValueError(detail)
         raise RuntimeError(f"沙箱内上传失败（退出码 {execution.exit_code}）：{detail}")
     stdout = _stdout_text(execution)
     if not stdout:
@@ -368,22 +440,56 @@ async def _run_sandbox_upload(source_path: str, object_prefix: str) -> dict[str,
 
 
 async def _ensure_bucket() -> None:
-    client = _make_minio_client(endpoint=minio_settings.endpoint.strip() or "localhost:9002")
-    bucket = minio_settings.bucket.strip() or "deal-pilot"
-    await client.create_bucket(bucket, allow_public_read=True)
+    client = _host_minio_client()
+    await client.create_bucket(_BUCKET_NAME, allow_public_read=True)
 
 
 async def _clear_deploy_prefix(prefix: str) -> None:
-    """删除该部署前缀下已有对象，避免目录二次部署残留旧文件。"""
-    client = _make_minio_client(endpoint=minio_settings.endpoint.strip() or "localhost:9002")
-    bucket = minio_settings.bucket.strip() or "deal-pilot"
+    client = _host_minio_client()
     normalized = prefix.strip("/")
     if not normalized:
         return
-    for key in await client.list_files(bucket, prefix=f"{normalized}/"):
-        await client.remove_file(bucket_name=bucket, filename=key)
-    if await client.file_exists(bucket_name=bucket, filename=normalized):
-        await client.remove_file(bucket_name=bucket, filename=normalized)
+    for key in await client.list_files(_BUCKET_NAME, prefix=f"{normalized}/"):
+        await client.remove_file(bucket_name=_BUCKET_NAME, filename=key)
+    if await client.file_exists(bucket_name=_BUCKET_NAME, filename=normalized):
+        await client.remove_file(bucket_name=_BUCKET_NAME, filename=normalized)
+
+
+def _failed_entry_paths(
+    source_path: str,
+    kind: str,
+    failures: dict[str, str],
+) -> set[str]:
+    if kind == "file":
+        return set(failures.keys())
+    root = Path(source_path)
+    return {str((root / rel).resolve()) for rel in failures}
+
+
+async def _successful_entries(
+    *,
+    user_id: str,
+    target_dirname: str,
+    source_path: str,
+    kind: str,
+    entries: list[str],
+    failures: dict[str, str],
+) -> list[str]:
+    client = _host_minio_client()
+    failed_paths = _failed_entry_paths(source_path, kind, failures)
+    successful: list[str] = []
+    root = Path(source_path)
+    for entry in entries:
+        if kind == "dir":
+            candidate = str((root / entry).resolve())
+            if candidate in failed_paths:
+                continue
+        elif kind == "file" and source_path in failed_paths:
+            continue
+        object_key = _entry_object_key(user_id, target_dirname, entry)
+        if await client.file_exists(bucket_name=_BUCKET_NAME, filename=object_key):
+            successful.append(entry)
+    return successful
 
 
 @tool(args_schema=DeployInput)
@@ -393,59 +499,12 @@ async def deploy(
     """
     将沙箱内的文件或目录部署到云存储，返回部署统计、失败原因和入口访问地址。
 
-    参数：
-        path: 沙箱内产物的路径；目录会递归部署其中的所有文件。
-        target_dirname: 云存储中的目标目录名称，存储路径为 <用户ID>/<target_dirname>/。
-            每次部署会先清空该前缀下已有对象，再上传本次产物。
-        entry_files: 要交付给用户的入口文件路径，相对于部署后的目标目录。
+    目录部署会先清空 <用户ID>/<target_dirname>/ 下已有对象再上传；
+    单文件部署仅覆盖同名对象，保留同前缀下的其他对象。
 
-    返回：
-        DeployOutput 字典，包含以下字段：
-        total_count: 本次部署的总文件数量。
-        success_count: 成功部署的文件数量。
-        failure_count: 部署失败的文件数量；为 0 表示所有文件部署成功。
-        failures: 失败文件及原因，键为沙箱内文件的绝对路径，值为错误描述。
-        urls: 根据 entry_files 拼接的入口访问地址列表。
-
-    调用示例（目录部署，全部成功）：
-
-    deploy(
-        "/root/workspace/vue-app/dist",
-        "vue-app",
-        ["index.html", "static/chart.png"]
-    )
-
-    得到结果示例：
-    {
-        "total_count": 5,
-        "success_count": 5,
-        "failure_count": 0,
-        "failures": {},
-        "urls": [
-            "http://deploy.com/u_123/vue-app/index.html",
-            "http://deploy.com/u_123/vue-app/static/chart.png"
-        ]
-    }
-
-    调用示例（单文件部署，全部成功）：
-
-    deploy(
-        "/root/workspace/deep-research/dist/reporter.zip",
-        "deep-research",
-        ["reporter.zip"]
-    )
-
-    得到结果示例：
-
-    {
-        "total_count": 1,
-        "success_count": 1,
-        "failure_count": 0,
-        "failures": {},
-        "urls": [
-            "http://deploy.com/u_123/deep-research/reporter.zip"
-        ]
-    }
+    前端静态站点：产物发布在子路径 <用户ID>/<target_dirname>/ 下。若构建工具
+    （如 Vite，默认 base=/）在 HTML/JS 中使用以 / 开头的资源绝对路径，部署后
+    入口页可打开但静态资源易 404；部署前应调整 base 或确认资源为相对路径。
     """
     source_path = path.strip()
     if not source_path:
@@ -455,16 +514,34 @@ async def deploy(
     entries = [_normalize_entry_file(item) for item in entry_files]
     user_id = get_user_id()
     prefix = _object_prefix(user_id, dirname)
+    store = _sandbox_store()
+
+    kind = await _sandbox_source_kind(source_path, store)
+    if kind == "missing":
+        raise ValueError(f"沙箱内路径不存在: {source_path}")
 
     await _ensure_bucket()
-    await _clear_deploy_prefix(prefix)
-    upload_result = await _run_sandbox_upload(source_path, prefix)
+    if kind == "dir":
+        await _clear_deploy_prefix(prefix)
+
+    upload_result = await _run_sandbox_upload(
+        source_path, prefix, entries, store
+    )
 
     failures: dict[str, str] = dict(upload_result.get("failures") or {})
-    if upload_result.get("kind") == "dir":
+    upload_kind = str(upload_result.get("kind", kind))
+    if upload_kind == "dir":
         failures = _map_dir_failures(source_path, failures)
 
-    urls = _build_entry_urls(user_id, dirname, entries)
+    successful_entries = await _successful_entries(
+        user_id=user_id,
+        target_dirname=dirname,
+        source_path=source_path,
+        kind=upload_kind,
+        entries=entries,
+        failures=failures,
+    )
+    urls = _build_entry_urls(user_id, dirname, successful_entries)
 
     return DeployOutput(
         total_count=int(upload_result["total_count"]),

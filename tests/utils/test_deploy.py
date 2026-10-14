@@ -4,6 +4,9 @@ import pytest
 from pydantic import ValidationError
 
 from deal_pilot.config.minio_settings import minio_settings
+import importlib
+
+deploy_module = importlib.import_module("deal_pilot.tools.deploy")
 from deal_pilot.tools.deploy import (
     _build_entry_urls,
     _map_dir_failures,
@@ -50,22 +53,24 @@ class TestNormalizeEntryFile:
 
 class TestMapDirFailures:
     def test_maps_relative_keys_to_absolute_sandbox_paths(self):
-        source = "/root/workspace/vue-app/dist"
+        from pathlib import Path
+
+        source = "/tmp/deploy-integration/workspace/vue-app/dist"
         mapped = _map_dir_failures(
             source,
             {"static/chart.png": "boom", "index.html": "denied"},
         )
+        root = Path(source)
         assert mapped == {
-            "/root/workspace/vue-app/dist/static/chart.png": "boom",
-            "/root/workspace/vue-app/dist/index.html": "denied",
+            str((root / "static/chart.png").resolve()): "boom",
+            str((root / "index.html").resolve()): "denied",
         }
 
 
 class TestBuildEntryUrls:
-    def test_uses_minio_endpoint_when_url_prefix_empty(self, monkeypatch: pytest.MonkeyPatch):
-        monkeypatch.setattr(minio_settings, "url_prefix", "")
+    def test_uses_minio_endpoint_and_fixed_bucket(self, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setattr(deploy_module, "_BUCKET_NAME", "deal-pilot")
         monkeypatch.setattr(minio_settings, "endpoint", "localhost:9002")
-        monkeypatch.setattr(minio_settings, "bucket", "deal-pilot")
         monkeypatch.setattr(minio_settings, "secure", False)
         urls = _build_entry_urls(
             "u_123",
@@ -75,22 +80,6 @@ class TestBuildEntryUrls:
         assert urls == [
             "http://localhost:9002/deal-pilot/u_123/vue-app/index.html",
             "http://localhost:9002/deal-pilot/u_123/vue-app/static/chart.png",
-        ]
-
-    def test_uses_custom_url_prefix_from_settings(self, monkeypatch: pytest.MonkeyPatch):
-        monkeypatch.setattr(
-            minio_settings,
-            "url_prefix",
-            "http://deploy.com/auto-prefix",
-        )
-        urls = _build_entry_urls(
-            "u_123",
-            "vue-app",
-            ["index.html", "static/chart.png"],
-        )
-        assert urls == [
-            "http://deploy.com/auto-prefix/u_123/vue-app/index.html",
-            "http://deploy.com/auto-prefix/u_123/vue-app/static/chart.png",
         ]
 
 
@@ -114,7 +103,7 @@ class TestDeployInputValidation:
             with langgraph_user_context("u-it"):
                 await deploy.ainvoke(
                     {
-                        "path": "/root/workspace/vue-app/dist",
+                        "path": "/tmp/deploy-integration/workspace/vue-app/dist",
                         "target_dirname": "../evil",
                         "entry_files": ["index.html"],
                     }
@@ -128,7 +117,7 @@ class TestDeployInputValidation:
             with langgraph_user_context("u-it"):
                 await deploy.ainvoke(
                     {
-                        "path": "/root/workspace/vue-app/dist",
+                        "path": "/tmp/deploy-integration/workspace/vue-app/dist",
                         "target_dirname": "vue-app",
                         "entry_files": ["../etc/passwd"],
                     }
@@ -141,7 +130,7 @@ class TestDeployInputValidation:
         async def _run() -> None:
             await deploy.ainvoke(
                 {
-                    "path": "/root/workspace/vue-app/dist",
+                    "path": "/tmp/deploy-integration/workspace/vue-app/dist",
                     "target_dirname": "vue-app",
                     "entry_files": ["index.html"],
                 }
@@ -155,7 +144,7 @@ class TestDeployInputValidation:
             run_async(
                 deploy.ainvoke(
                     {
-                        "path": "/root/x",
+                        "path": "/tmp/x",
                         "target_dirname": "vue-app",
                         "entry_files": [],
                     }
